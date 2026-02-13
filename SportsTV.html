@@ -1,0 +1,1426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>Shaka + Modern Player · Touch Controls + No Loader</title>
+    
+    <!-- Shaka Player UI -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.6.0/shaka-player.ui.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.6.0/controls.min.css">
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    
+    <!-- HLS.js for modern player quality switching -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
+    
+    <style>
+        /* ----- GLOBAL DARK MODE ----- */
+        :root {
+            --bg-black: #000000;
+            --panel-bg: #0c0c0c;
+            --card-bg: #1a1a1a;
+            --accent: #ff0000;
+            --text-color: #e0e0e0;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000;
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            color: var(--text-color);
+            overflow-x: hidden;
+        }
+
+        /* ===== FIXED DUAL PLAYER – TOP 0 ===== */
+        .dual-player-fixed {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 2000;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 8px 20px rgba(255,0,0,0.2);
+        }
+
+        /* ----- SHAKA CONTAINER ----- */
+        .shaka-video-container {
+            width: 100%;
+            height: 0;
+            background: #000;
+            position: relative;
+            transition: height 0.25s ease;
+            overflow: hidden;
+        }
+        .shaka-video-container.active {
+            height: 230px;
+        }
+        @media (min-width: 768px) {
+            .shaka-video-container.active { height: 400px; }
+        }
+
+        /* ----- MODERN PLAYER WRAPPER ----- */
+        .modern-player-wrapper {
+            width: 100%;
+            height: 0;
+            background: #000;
+            transition: height 0.25s ease;
+            overflow: hidden;
+            position: relative;
+        }
+        .modern-player-wrapper.active {
+            height: 230px;
+        }
+        @media (min-width: 768px) {
+            .modern-player-wrapper.active { height: 400px; }
+        }
+
+        video {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: contain;
+            background: #000;
+        }
+
+        /* ===== MODERN PLAYER CUSTOM STYLES ===== */
+        .video-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            background: #000;
+            overflow: hidden;
+            border-radius: 0;
+            aspect-ratio: 16 / 9;
+        }
+
+        .video {
+            width: 100%;
+            height: 100%;
+            display: block;
+            object-fit: contain;
+            background: #000;
+        }
+
+        .live-badge {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            background: var(--accent);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 30px;
+            font-size: 13px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            z-index: 15;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+            letter-spacing: 0.5px;
+        }
+        .live-badge::before {
+            content: '';
+            display: block;
+            width: 10px;
+            height: 10px;
+            background: white;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.1); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        /* ----- CONTROLS – auto hide after 3s, touch toggle ----- */
+        .controls {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.85));
+            padding: 18px 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            transform: translateY(0);
+            transition: transform 0.3s ease, opacity 0.3s ease, visibility 0.3s ease;
+            backdrop-filter: blur(4px);
+            opacity: 1;
+            visibility: visible;
+        }
+        .controls.hidden-controls {
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(20px);
+            pointer-events: none;
+        }
+        /* Hover still shows controls on desktop */
+        .video-container:hover .controls,
+        .video-container:focus-within .controls {
+            opacity: 1 !important;
+            visibility: visible !important;
+            transform: translateY(0) !important;
+            pointer-events: auto !important;
+        }
+
+        .progress-container {
+            width: 100%;
+            height: 8px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        .progress {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 10px;
+            width: 0%;
+            position: relative;
+        }
+        .progress::after {
+            content: '';
+            position: absolute;
+            right: -6px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 16px;
+            height: 16px;
+            background: var(--accent);
+            border-radius: 50%;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .progress-container:hover .progress::after {
+            opacity: 1;
+        }
+
+        .buttons {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .left-controls, .right-controls {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        .control-btn {
+            background: transparent;
+            border: none;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+        }
+        .control-btn:hover {
+            transform: scale(1.15);
+            background: rgba(255,255,255,0.1);
+        }
+        .volume-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .volume-slider {
+            width: 90px;
+            height: 5px;
+            appearance: none;
+            background: rgba(255,255,255,0.25);
+            border-radius: 5px;
+            outline: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .volume-container:hover .volume-slider {
+            opacity: 1;
+        }
+        .volume-slider::-webkit-slider-thumb {
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: white;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(255,71,87,0.5);
+        }
+        .time {
+            font-size: 15px;
+            color: #f0f0f0;
+            font-weight: 500;
+            padding: 4px 10px;
+            border-radius: 30px;
+            background: rgba(0,0,0,0.3);
+        }
+        
+        /* Settings Menu - Quality Selector (Modern Player) */
+        .settings-menu {
+            position: absolute;
+            bottom: 70px;
+            right: 20px;
+            background: rgba(15,15,20,0.95);
+            backdrop-filter: blur(8px);
+            border-radius: 12px;
+            padding: 8px;
+            width: 180px;
+            transform: translateY(15px);
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.25s;
+            border: 1px solid rgba(255,255,255,0.1);
+            z-index: 30;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .settings-menu.active {
+            transform: translateY(0);
+            opacity: 1;
+            visibility: visible;
+        }
+        .settings-menu button {
+            display: block;
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: #f1f2f6;
+            padding: 10px 14px;
+            text-align: left;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.15s;
+            border-left: 3px solid transparent;
+        }
+        .settings-menu button:hover {
+            background: rgba(255,71,87,0.3);
+        }
+        .settings-menu button.active-quality {
+            background: rgba(255,71,87,0.5);
+            border-left: 3px solid var(--accent);
+            font-weight: bold;
+        }
+
+        /* Shaka Custom Quality Menu - Override default */
+        .shaka-quality-menu {
+            background: rgba(15,15,20,0.95) !important;
+            backdrop-filter: blur(8px) !important;
+            border-radius: 12px !important;
+            border: 1px solid rgba(255,255,255,0.1) !important;
+            padding: 8px !important;
+        }
+        .shaka-quality-menu button {
+            color: #f1f2f6 !important;
+            font-size: 14px !important;
+            padding: 10px 14px !important;
+            border-radius: 8px !important;
+            border-left: 3px solid transparent !important;
+        }
+        .shaka-quality-menu button:hover {
+            background: rgba(255,71,87,0.3) !important;
+        }
+        .shaka-quality-menu button:focus {
+            background: rgba(255,71,87,0.5) !important;
+            border-left: 3px solid var(--accent) !important;
+        }
+        .shaka-spacer {
+            display: none !important;
+        }
+
+        /* LOADER - COMPLETELY REMOVED (no display) */
+        .loader-container {
+            display: none !important;
+        }
+
+        .buffering-indicator {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.75);
+            backdrop-filter: blur(4px);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 40px;
+            font-size: 13px;
+            display: none;
+            z-index: 26;
+        }
+
+        /* ===== STICKY FILTERS ===== */
+        .sticky-filters {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background: rgba(10,10,10,0.98);
+            z-index: 999;
+            padding: 15px 10px;
+            display: flex;
+            gap: 12px;
+            overflow-x: auto;
+            scrollbar-width: none;
+            border-bottom: 1px solid #1a1a1a;
+            transition: top 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+        .sticky-filters::-webkit-scrollbar { display: none; }
+        .filter-btn {
+            padding: 10px 22px;
+            border: none;
+            border-radius: 20px;
+            background: var(--card-bg);
+            color: #888;
+            font-weight: bold;
+            font-size: 11px;
+            cursor: pointer;
+            box-shadow: 4px 4px 8px #000, -2px -2px 6px #2d2d2d;
+            white-space: nowrap;
+            transition: 0.3s;
+            text-transform: uppercase;
+        }
+        .filter-btn.active-filter {
+            box-shadow: inset 3px 3px 6px #000, inset -1px -1px 4px #444;
+            color: var(--accent);
+            border: 1px solid rgba(255,0,0,0.3);
+        }
+
+        /* ===== TV GUIDE SECTION ===== */
+        .tv-guide-section {
+            margin-top: 80px;
+            padding: 10px 15px 30px;
+            transition: margin-top 0.3s ease;
+        }
+        .tv-panel {
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto;
+            background: var(--panel-bg);
+            border-radius: 30px;
+            padding: 20px;
+            box-shadow: 10px 10px 20px #000;
+        }
+        .scroll-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+        @media (min-width: 600px) {
+            .scroll-container { grid-template-columns: repeat(3, 1fr); }
+        }
+
+        /* ----- CHANNEL CARDS ----- */
+        .channel-card {
+            background: var(--card-bg);
+            border: none;
+            border-radius: 20px;
+            padding: 15px 10px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-shadow: 6px 6px 12px #000, -2px -2px 8px #2d2d2d;
+            transition: transform 0.2s, box-shadow 0.2s;
+            color: var(--text-color);
+            border: 2px solid transparent;
+        }
+        .channel-card:active { transform: scale(0.95); }
+        .channel-card.active { border: 2px solid var(--accent); background: #2a1a1a; }
+
+        .logo-box {
+            width: 60px;
+            height: 60px;
+            background: #fff;
+            border-radius: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 10px;
+            overflow: hidden;
+        }
+        .logo-box img { width: 80%; height: 80%; object-fit: contain; }
+        .ch-title { font-size: 10px; font-weight: 700; color: #bbb; text-align: center; text-transform: uppercase; }
+
+        .section-subtitle {
+            color: var(--accent);
+            font-size: 12px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin: 20px 0 15px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+            grid-column: span 2;
+        }
+
+        /* Shaka UI tweaks */
+        .shaka-controls-container {
+            opacity: 0 !important;
+            transition: opacity 0.3s !important;
+        }
+        .show-controls .shaka-controls-container {
+            opacity: 1 !important;
+        }
+        .advanced-loader { 
+            position: absolute; top: 50%; left: 50%; 
+            transform: translate(-50%, -50%); 
+            display: none; z-index: 2001; 
+        }
+        .loader-ring { 
+            width: 45px; height: 45px; 
+            border: 3px solid #333; 
+            border-top-color: var(--accent); 
+            border-radius: 50%; 
+            animation: spin 1s infinite linear; 
+        }
+
+        /* Server modal */
+        #serverModal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 3000;
+            display: none; align-items: center; justify-content: center; backdrop-filter: blur(10px);
+        }
+        .modal-content {
+            background: var(--panel-bg); width: 90%; max-width: 400px;
+            padding: 25px; border-radius: 25px; text-align: center;
+            border: 1px solid #333;
+        }
+        .close-btn {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 30px;
+            background: var(--accent);
+            color: white;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        /* Fullscreen landscape fix */
+        .video-container:-webkit-full-screen {
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+        }
+        .video-container:fullscreen {
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+        }
+        .video-container:-webkit-full-screen video {
+            object-fit: contain;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===== FIXED DUAL PLAYER – TOP 0 ===== -->
+    <div class="dual-player-fixed" id="dualPlayerFixed">
+        <!-- SHAKA CONTAINER with custom quality menu -->
+        <div class="shaka-video-container" id="mainContainer" data-shaka-player-container>
+            <video id="video" playsinline poster="https://i.pinimg.com/736x/52/71/ce/5271ced04cbad26a97f7f7348f630e2e.jpg"></video>
+            <div class="advanced-loader" id="loader"><div class="loader-ring"></div></div>
+        </div>
+
+        <!-- MODERN PLAYER WRAPPER - NO LOADER -->
+        <div class="modern-player-wrapper" id="modernPlayerWrapper">
+            <div class="video-container">
+                <video class="video" poster="https://i.pinimg.com/736x/52/71/ce/5271ced04cbad26a97f7f7348f630e2e.jpg"></video>
+                <div class="live-badge">LIVE</div>
+                
+                <!-- LOADER CONTAINER REMOVED - not displayed -->
+                
+                <div class="buffering-indicator"><i class="fas fa-circle-notch fa-spin"></i> Buffering...</div>
+                
+                <div class="controls">
+                    <div class="progress-container"><div class="progress"></div></div>
+                    <div class="buttons">
+                        <div class="left-controls">
+                            <button class="control-btn play-btn"><i class="fas fa-play"></i></button>
+                            <div class="volume-container">
+                                <button class="control-btn volume-btn"><i class="fas fa-volume-up"></i></button>
+                                <input type="range" class="volume-slider" min="0" max="1" step="0.01" value="1">
+                            </div>
+                            <span class="time">00:00 / 00:00</span>
+                        </div>
+                        <div class="right-controls">
+                            <button class="control-btn settings-btn"><i class="fas fa-cog"></i></button>
+                            <button class="control-btn fullscreen-btn"><i class="fas fa-expand"></i></button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Quality Settings Menu (Modern Player) -->
+                <div class="settings-menu">
+                    <button data-quality="auto" class="active-quality">Auto (1080p)</button>
+                    <button data-quality="1080p">1080p</button>
+                    <button data-quality="720p">720p</button>
+                    <button data-quality="540p">540p</button>
+                    <button data-quality="480p">480p</button>
+                    <button data-quality="360p">360p</button>
+                    <button data-quality="240p">240p</button>
+                    <button data-quality="144p">144p</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== STICKY FILTERS ===== -->
+    <div class="sticky-filters" id="stickyFilters">
+        <button class="filter-btn active-filter" onclick="filterChannels('all', this)">All</button>
+        <button class="filter-btn" onclick="filterChannels('pakistan', this)">Pakistan</button>
+        <button class="filter-btn" onclick="filterChannels('india', this)">India</button>
+        <button class="filter-btn" onclick="filterChannels('others', this)">Others</button>
+    </div>
+
+    <!-- ===== TV GUIDE ===== -->
+    <div class="tv-guide-section" id="tvGuideSection">
+        <div class="tv-panel">
+            <!-- MODERN PLAYER CHANNELS (3 CARDS) -->
+            <div class="section-subtitle">⚡ MODERN VIDEO PLAYER</div>
+            <div class="scroll-container" id="modernChannelList">
+                <button class="channel-card modern-channel" data-category="others" data-url="https://wasitv-pro.site/abbas/rapid.php?url=https://zx.visiona.top:8443/sportshdd/shj17/chunks.m3u8">
+                    <div class="logo-box"><img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTcKAFkbhqNndx-DNGIiTOox2PRmJGRn0ljRw&usqp=CAU"></div>
+                    <span class="ch-title">SONY TEN 1 HD</span>
+                </button>
+                <button class="channel-card modern-channel" data-category="others" data-url="https://wasitv-pro.site/abbas/rapid.php?url=https://us1.visiona.top:8443/sportshdd/asports/chunks.m3u8">
+                    <div class="logo-box"><img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQHrMa7HwO9Ke3z6Nx5Rllnl-ZBALoV_Ur_TV8DfBQUp6yqg-a8U9S1uwo&s=10"></div>
+                    <span class="ch-title">SKY SPORTS MAIN</span>
+                </button>
+                <button class="channel-card modern-channel" data-category="others" data-url="https://wasitv-pro.site/dd.php?c=willowusa">
+                    <div class="logo-box"><img src="https://images.sftcdn.net/images/t_app-icon-m/p/baec2118-565e-4c9a-b7c7-fa5e017f0a10/2036685842/willow-watch-live-cricket-logo"></div>
+                    <span class="ch-title">WILLOW USA</span>
+                </button>
+            </div>
+
+            <div style="height: 25px;"></div>
+            <div class="section-subtitle">🔴 SHAKA · SPORTS NETWORK</div>
+            <!-- SHAKA CHANNELS -->
+            <div class="scroll-container" id="channelList">
+                <!-- PTV SPORTS -->
+                <button class="channel-card" data-category="pakistan" data-name="PTV Sports"
+                    data-s1="https://cdn23lhr.tamashaweb.com:8087/jazzauth/189M/playlist.m3u8"
+                    data-s1-name="PTV SPORTS HD"
+                    data-s2="https://us1.visiona.top:8443/sportshdd/shj5/chunks.m3u8"
+                    data-s2-name="PTV SPORTS SD"
+                    onclick="openShakaMenu(this)">
+                    <div class="logo-box"><img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQwmLiKvUP4yxk9fJsH80hSpVje5QmxHDe94w&s"></div>
+                    <span class="ch-title">PTV SPORTS</span>
+                </button>
+                <!-- TEN SPORTS HD -->
+                <button class="channel-card" data-category="pakistan" data-name="TEN SPORTS HD"
+                    data-s1="https://cdn05khi.tamashaweb.com:8087/jazzauth/157-3H/playlist.m3u8"
+                    data-s1-name="TEN SPORTS HD 1"
+                    data-s2="https://tapmadlive.akamaized.net/tapmadold/tensports.smil/chunklist_w900354660_b748000_slEng.m3u8"
+                    data-s2-name="TEN SPORTS HD 2"
+                    onclick="openShakaMenu(this)">
+                    <div class="logo-box"><img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTKm1xq6DMTfUmIakK2fWS_bi2NkPjQBssMZIFvtlZthhGnGF-hTPPoRQI&s"></div>
+                    <span class="ch-title">TEN SPORTS HD</span>
+                </button>
+                <!-- A SPORTS HD -->
+                <button class="channel-card" data-category="pakistan" data-name="A SPORTS HD"
+                    data-s1="https://wasitv-pro.site/dd.php?c=asportshd"
+                    data-s1-name="A Sports HD"
+                    onclick="openShakaMenu(this)">
+                    <div class="logo-box"><img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSk9C68th1pite23d5vit1EI6d35XMuVbcuqhaPLKxTVoeSSktHCUA5rFdK&s=10"></div>
+                    <span class="ch-title">A SPORTS HD</span>
+                </button>
+                <!-- WILLOW US -->
+                <button class="channel-card" data-category="others" data-name="WILLOW US"
+                    data-s1="https://crichd.workspace-sultanarabi161.workers.dev/live/willowusa.m3u8"
+                    data-s1-name="Willow USA"
+                    data-s2="https://wasitv-pro.site/dd.php?c=willowusa"
+                    data-s2-name="Willow 2"
+                    onclick="openShakaMenu(this)">
+                    <div class="logo-box"><img src="https://images.sftcdn.net/images/t_app-icon-m/p/baec2118-565e-4c9a-b7c7-fa5e017f0a10/2036685842/willow-watch-live-cricket-logo"></div>
+                    <span class="ch-title">WILLOW US</span>
+                </button>
+                <!-- PREMIER SPORTS 1 -->
+                <button class="channel-card" data-category="others" data-name="Premier Sports 1"
+                    data-s1="https://wasitv-pro.site/dd.php?c=premieruk"
+                    data-s1-name="Premier UK"
+                    onclick="openShakaMenu(this)">
+                    <div class="logo-box"><img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQfFVHGQObz3fuhIMo1fqL8zPgyK790D6CpyWzUv3KC0g&s=10"></div>
+                    <span class="ch-title">Premier Sports 1</span>
+                </button>
+                <!-- GEO SUPER HD -->
+                <button class="channel-card" data-category="pakistan" data-name="GEO SUPER HD"
+                    data-s1="https://ml-pull-dvc-myco.io:2096/GEO_SUPER/tracks-v1a1/mono.ts.m3u8"
+                    data-s1-name="Geo Super"
+                    onclick="openShakaMenu(this)">
+                    <div class="logo-box"><img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSz0g-sbV4e7afgv9pq_1xEbB6JkXQk_Sl74smTN8Mhwnj0oDqUG61x53U&s=10"></div>
+                    <span class="ch-title">GEO SUPER HD</span>
+                </button>
+                <!-- FAST SPORTS HD -->
+                <button class="channel-card" data-category="pakistan" data-name="fast-sports"
+                    data-s1="https://live2.shoq.com.pk/live/eds/Fast_Sports_HD/DASH/Fast_Sports_HD.mpd"
+                    data-kid1="ba9b637b639af897f228114363e882fa"
+                    data-key1="27508374902bd52361f08a2ad4dba3a3"
+                    data-s1-name="Fast Sports DRM"
+                    onclick="openShakaMenu(this)">
+                    <div class="logo-box"><img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQT5QOvP02QZ3z3Dra5f6oqc9QXms-frWA0vFpUtrlzrtbjftn1rAL9ROw&s=10"></div>
+                    <span class="ch-title">FAST SPORTS HD</span>
+                </button>
+                <!-- FOX CRICKET 501 -->
+                <button class="channel-card" data-category="others" data-name="FOX CRICKET 501"
+                    data-s1="https://wasitv-pro.site/abbas/rapid.php?url=https://zx.visiona.top:8443/sports2/fox501/chunks.m3u8"
+                    data-s1-name="Fox Cricket 501"
+                    onclick="openShakaMenu(this)">
+                    <div class="logo-box"><img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQHrMa7HwO9Ke3z6Nx5Rllnl-ZBALoV_Ur_TV8DfBQUp6yqg-a8U9S1uwo&s=10"></div>
+                    <span class="ch-title">FOX CRICKET 501</span>
+                </button>
+                <!-- SONY TEN 1 HD -->
+                <button class="channel-card" data-category="india" data-name="SONY TEN 1 HD"
+                    data-s1="https://wasitv-pro.site/abbas/rapid.php?url=https://zx.visiona.top:8443/sportshdd/shj17/chunks.m3u8"
+                    data-s1-name="Sony Ten 1 FHD"
+                    data-s2="https://crichd.workspace-sultanarabi161.workers.dev/live/sony1.m3u8"
+                    data-s2-name="Sony Ten 1 CF"
+                    onclick="openShakaMenu(this)">
+                    <div class="logo-box"><img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTXSupfSuqM8EnDRJ8N_Hk33H52RfinnwM9u3W-o5Yrw9Z_U59ZSHzikFs&s=10"></div>
+                    <span class="ch-title">SONY TEN 1 HD</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SHAKA MODAL -->
+    <div id="serverModal">
+        <div class="modal-content">
+            <h3>⚙️ SELECT SERVER</h3>
+            <div id="serverList"></div>
+            <span onclick="closeModal()" class="close-btn">CLOSE</span>
+        </div>
+    </div>
+
+    <script>
+        // ========== MASTER CONTROLLER – TOGGLE CONTROLS + NO LOADER ==========
+        // Shaka elements
+        let shakaPlayer, ui, video, container, loader, hideTimeout;
+        // Modern player elements
+        let modernVideo, modernControls, modernPlayerWrapper, modernBuffering;
+        let modernPlayBtn, modernVolumeBtn, modernVolumeSlider, modernProgress, modernTime, modernFullscreen, modernSettingsBtn, modernSettingsMenu;
+        let currentActivePlayer = null;
+        let modernHideTimer = null;
+        
+        // HLS.js instance for modern player quality switching
+        let hls = null;
+        let currentQuality = 'auto';
+        
+        // Touch toggle state
+        let controlsVisible = true;
+        let touchToggleEnabled = true;
+
+        // ----- 1. SHAKA INIT WITH CUSTOM QUALITY -----
+        async function initShaka() {
+            video = document.getElementById('video');
+            container = document.getElementById('mainContainer');
+            loader = document.getElementById('loader');
+            
+            shaka.polyfill.installAll();
+            if (shaka.Player.isBrowserSupported()) {
+                shakaPlayer = new shaka.Player(video);
+                
+                // Configure Shaka with custom quality settings
+                shakaPlayer.configure({
+                    abr: {
+                        enabled: true,
+                        defaultBandwidthEstimate: 1000000
+                    },
+                    preferredAudioLanguage: 'en',
+                    preferredTextLanguage: 'en'
+                });
+                
+                ui = new shaka.ui.Overlay(shakaPlayer, container, video);
+                ui.configure({
+                    'controlPanelElements': ['play_pause', 'time_and_duration', 'spacer', 'mute', 'volume', 'quality', 'fullscreen'],
+                    'addBigPlayButton': true,
+                    'qualityMenu': true
+                });
+                
+                container.addEventListener('click', () => showControlsTemporarily());
+                
+                shakaPlayer.addEventListener('error', (e) => {
+                    console.error('Shaka Error:', e.detail);
+                    loader.style.display = 'none';
+                });
+                
+                // Override default quality menu with custom options
+                shakaPlayer.addEventListener('variantchanged', function(e) {
+                    updateShakaQualityUI();
+                });
+            }
+        }
+        
+        // ----- SHAKA CUSTOM QUALITY SELECTOR -----
+        function setupShakaQualityMenu() {
+            setTimeout(() => {
+                const qualityButton = document.querySelector('.shaka-quality-button');
+                if (qualityButton) {
+                    console.log('Shaka quality menu ready');
+                }
+                
+                if (shakaPlayer) {
+                    const abrManager = shakaPlayer.getAbrManager();
+                    if (abrManager) {
+                        abrManager.configure({
+                            enabled: true,
+                            defaultBandwidthEstimate: 1000000,
+                            restrictions: {
+                                minHeight: 144,
+                                maxHeight: 1080,
+                                minBitrate: 200000,
+                                maxBitrate: 8000000
+                            }
+                        });
+                    }
+                }
+            }, 1000);
+        }
+        
+        function updateShakaQualityUI() {
+            if (!shakaPlayer) return;
+            try {
+                const activeVariant = shakaPlayer.getVariantTracks().find(t => t.active);
+                if (activeVariant) {
+                    console.log(`Current quality: ${activeVariant.height}p`);
+                }
+            } catch (e) {}
+        }
+        
+        function setShakaQuality(quality) {
+            if (!shakaPlayer) return;
+            try {
+                const tracks = shakaPlayer.getVariantTracks();
+                if (tracks && tracks.length > 0) {
+                    if (quality === 'auto') {
+                        shakaPlayer.configure('abr.enabled', true);
+                        console.log('Shaka quality set to AUTO');
+                    } else {
+                        shakaPlayer.configure('abr.enabled', false);
+                        const targetHeight = parseInt(quality.replace('p', ''));
+                        let selectedTrack = null;
+                        let minDiff = Infinity;
+                        tracks.forEach(track => {
+                            if (track.height) {
+                                const diff = Math.abs(track.height - targetHeight);
+                                if (diff < minDiff) {
+                                    minDiff = diff;
+                                    selectedTrack = track;
+                                }
+                            }
+                        });
+                        if (selectedTrack) {
+                            shakaPlayer.selectVariantTrack(selectedTrack, true);
+                            console.log(`Shaka quality set to ${selectedTrack.height}p`);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('Error setting Shaka quality:', e);
+            }
+        }
+
+        // ----- 2. MODERN PLAYER INIT (NO LOADER, TOUCH TOGGLE, AUTO HIDE) -----
+        function initModernPlayer() {
+            modernPlayerWrapper = document.getElementById('modernPlayerWrapper');
+            modernVideo = document.querySelector('.modern-player-wrapper .video');
+            modernControls = document.querySelector('.modern-player-wrapper .controls');
+            modernBuffering = document.querySelector('.modern-player-wrapper .buffering-indicator');
+            modernPlayBtn = document.querySelector('.modern-player-wrapper .play-btn');
+            modernVolumeBtn = document.querySelector('.modern-player-wrapper .volume-btn');
+            modernVolumeSlider = document.querySelector('.modern-player-wrapper .volume-slider');
+            modernProgress = document.querySelector('.modern-player-wrapper .progress');
+            modernTime = document.querySelector('.modern-player-wrapper .time');
+            modernFullscreen = document.querySelector('.modern-player-wrapper .fullscreen-btn');
+            modernSettingsBtn = document.querySelector('.modern-player-wrapper .settings-btn');
+            modernSettingsMenu = document.querySelector('.modern-player-wrapper .settings-menu');
+
+            if (!modernVideo) return;
+
+            // Events - NO LOADER references
+            modernVideo.addEventListener('playing', function() {
+                hideModernBuffering();
+                modernPlayBtn.innerHTML = '<i class="fas fa-pause"></i>';
+                // Auto-hide controls after 3 seconds when playing
+                startModernHideTimer();
+            });
+            
+            modernVideo.addEventListener('pause', function() {
+                modernPlayBtn.innerHTML = '<i class="fas fa-play"></i>';
+                // Show controls when paused
+                modernControls.classList.remove('hidden-controls');
+                cancelModernHideTimer();
+                controlsVisible = true;
+            });
+            
+            modernVideo.addEventListener('waiting', function() {
+                showModernBuffering();
+                cancelModernHideTimer();
+            });
+            
+            modernVideo.addEventListener('canplay', hideModernBuffering);
+            modernVideo.addEventListener('canplaythrough', hideModernBuffering);
+            
+            // Error handler - no loader
+            modernVideo.addEventListener('error', function() {
+                hideModernBuffering();
+                modernPlayBtn.innerHTML = '<i class="fas fa-play"></i>';
+                cancelModernHideTimer();
+            });
+            
+            modernVideo.addEventListener('ended', function() {
+                modernPlayBtn.innerHTML = '<i class="fas fa-play"></i>';
+                modernControls.classList.remove('hidden-controls');
+                cancelModernHideTimer();
+                controlsVisible = true;
+            });
+            
+            modernVideo.addEventListener('timeupdate', updateModernProgress);
+            
+            // TOGGLE CONTROLS ON TOUCH/CLICK - one tap shows, second tap hides
+            modernVideo.addEventListener('click', function(e) {
+                e.stopPropagation();
+                
+                if (!modernControls.classList.contains('hidden-controls')) {
+                    // Controls are visible -> hide them immediately and cancel timer
+                    modernControls.classList.add('hidden-controls');
+                    cancelModernHideTimer();
+                    controlsVisible = false;
+                } else {
+                    // Controls are hidden -> show them
+                    modernControls.classList.remove('hidden-controls');
+                    controlsVisible = true;
+                    
+                    // If video is playing, start timer to auto-hide
+                    if (!modernVideo.paused) {
+                        startModernHideTimer();
+                    }
+                }
+            });
+
+            // Play button (separate from video click)
+            modernPlayBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                toggleModernPlay();
+            });
+            
+            // Volume
+            modernVolumeBtn.addEventListener('click', toggleModernMute);
+            modernVolumeSlider.addEventListener('input', function(e) {
+                modernVideo.volume = parseFloat(e.target.value);
+                modernVideo.muted = false;
+                updateVolumeIcon();
+                showModernControlsWithTimer();
+            });
+            
+            // Progress bar
+            const progressContainer = document.querySelector('.modern-player-wrapper .progress-container');
+            if (progressContainer) {
+                progressContainer.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const width = this.clientWidth;
+                    const clickX = e.offsetX;
+                    if (modernVideo.duration) {
+                        modernVideo.currentTime = (clickX / width) * modernVideo.duration;
+                    }
+                    showModernControlsWithTimer();
+                });
+            }
+            
+            // Fullscreen
+            modernFullscreen.addEventListener('click', function(e) {
+                e.stopPropagation();
+                toggleModernFullscreen();
+            });
+            
+            // Settings button
+            modernSettingsBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                modernSettingsMenu.classList.toggle('active');
+                showModernControlsWithTimer();
+            });
+            
+            // Quality selector
+            initModernQualitySelector();
+            
+            // Mouse move - show controls and restart timer on desktop
+            modernVideo.addEventListener('mousemove', function() {
+                showModernControlsWithTimer();
+            });
+            modernControls.addEventListener('mousemove', function() {
+                showModernControlsWithTimer();
+            });
+            
+            // Initial volume
+            modernVideo.volume = parseFloat(modernVolumeSlider.value);
+            
+            // Start with controls visible
+            modernControls.classList.remove('hidden-controls');
+            controlsVisible = true;
+        }
+        
+        // ----- MODERN PLAYER QUALITY SELECTOR -----
+        function initModernQualitySelector() {
+            const qualityButtons = document.querySelectorAll('.modern-player-wrapper .settings-menu button');
+            
+            qualityButtons.forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    qualityButtons.forEach(b => b.classList.remove('active-quality'));
+                    this.classList.add('active-quality');
+                    
+                    const quality = this.dataset.quality;
+                    currentQuality = quality;
+                    
+                    if (hls && hls.levels && hls.levels.length > 0) {
+                        if (quality === 'auto') {
+                            hls.currentLevel = -1;
+                        } else {
+                            const height = parseInt(quality.replace('p', ''));
+                            let levelIndex = -1;
+                            for (let i = 0; i < hls.levels.length; i++) {
+                                if (hls.levels[i].height === height) {
+                                    levelIndex = i;
+                                    break;
+                                }
+                            }
+                            if (levelIndex !== -1) {
+                                hls.currentLevel = levelIndex;
+                            } else {
+                                let closest = 0;
+                                let closestDiff = Math.abs(hls.levels[0].height - height);
+                                for (let i = 1; i < hls.levels.length; i++) {
+                                    const diff = Math.abs(hls.levels[i].height - height);
+                                    if (diff < closestDiff) {
+                                        closestDiff = diff;
+                                        closest = i;
+                                    }
+                                }
+                                hls.currentLevel = closest;
+                            }
+                        }
+                    }
+                    
+                    modernSettingsMenu.classList.remove('active');
+                    showModernControlsWithTimer();
+                });
+            });
+        }
+        
+        // ----- LOAD STREAM WITH HLS (NO LOADER) -----
+        function loadStreamWithHLS(url) {
+            if (!modernVideo) return;
+            
+            if (hls) {
+                hls.destroy();
+                hls = null;
+            }
+            
+            if (Hls.isSupported()) {
+                hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    backBufferLength: 90
+                });
+                
+                hls.loadSource(url);
+                hls.attachMedia(modernVideo);
+                
+                hls.on(Hls.Events.MANIFEST_PARSED, function(event, data) {
+                    const availableHeights = hls.levels.map(level => level.height);
+                    const qualityButtons = document.querySelectorAll('.modern-player-wrapper .settings-menu button');
+                    
+                    qualityButtons.forEach(btn => {
+                        const quality = btn.dataset.quality;
+                        if (quality === 'auto') return;
+                        const height = parseInt(quality.replace('p', ''));
+                        if (!availableHeights.includes(height)) {
+                            btn.style.opacity = '0.5';
+                            btn.style.cursor = 'not-allowed';
+                        } else {
+                            btn.style.opacity = '1';
+                            btn.style.cursor = 'pointer';
+                        }
+                    });
+                    
+                    hls.currentLevel = -1;
+                });
+                
+                hls.on(Hls.Events.ERROR, function(event, data) {
+                    console.error('HLS Error:', data);
+                });
+                
+            } else if (modernVideo.canPlayType('application/vnd.apple.mpegurl')) {
+                modernVideo.src = url;
+            }
+        }
+
+        // ----- MODERN PLAYER HELPERS (NO LOADER) -----
+        function startModernHideTimer() {
+            cancelModernHideTimer();
+            if (!modernVideo.paused) {
+                modernHideTimer = setTimeout(() => {
+                    if (!modernVideo.paused && !modernSettingsMenu.classList.contains('active')) {
+                        modernControls.classList.add('hidden-controls');
+                        controlsVisible = false;
+                    }
+                }, 3000);
+            }
+        }
+        
+        function cancelModernHideTimer() {
+            if (modernHideTimer) {
+                clearTimeout(modernHideTimer);
+                modernHideTimer = null;
+            }
+        }
+        
+        function showModernControlsWithTimer() {
+            modernControls.classList.remove('hidden-controls');
+            controlsVisible = true;
+            cancelModernHideTimer();
+            if (!modernVideo.paused) {
+                startModernHideTimer();
+            }
+        }
+        
+        function toggleModernPlay() {
+            if (modernVideo.paused) {
+                modernVideo.play().then(() => {
+                    modernPlayBtn.innerHTML = '<i class="fas fa-pause"></i>';
+                    showModernControlsWithTimer();
+                }).catch(() => {
+                    modernPlayBtn.innerHTML = '<i class="fas fa-play"></i>';
+                });
+            } else {
+                modernVideo.pause();
+                modernPlayBtn.innerHTML = '<i class="fas fa-play"></i>';
+                modernControls.classList.remove('hidden-controls');
+                controlsVisible = true;
+                cancelModernHideTimer();
+            }
+        }
+        
+        function toggleModernMute() {
+            modernVideo.muted = !modernVideo.muted;
+            if (modernVideo.muted) {
+                modernVolumeBtn.innerHTML = '<i class="fas fa-volume-mute"></i>';
+                modernVolumeSlider.value = 0;
+            } else {
+                modernVolumeBtn.innerHTML = '<i class="fas fa-volume-up"></i>';
+                modernVolumeSlider.value = modernVideo.volume;
+            }
+            showModernControlsWithTimer();
+        }
+        
+        function updateVolumeIcon() {
+            const vol = modernVideo.volume;
+            if (modernVideo.muted || vol === 0) modernVolumeBtn.innerHTML = '<i class="fas fa-volume-mute"></i>';
+            else if (vol > 0.5) modernVolumeBtn.innerHTML = '<i class="fas fa-volume-up"></i>';
+            else modernVolumeBtn.innerHTML = '<i class="fas fa-volume-down"></i>';
+        }
+        
+        function updateModernProgress() {
+            if (modernVideo.duration) {
+                const percent = (modernVideo.currentTime / modernVideo.duration) * 100;
+                modernProgress.style.width = `${percent}%`;
+                const curM = Math.floor(modernVideo.currentTime / 60);
+                const curS = Math.floor(modernVideo.currentTime % 60);
+                const durM = Math.floor(modernVideo.duration / 60);
+                const durS = Math.floor(modernVideo.duration % 60);
+                modernTime.textContent = `${curM}:${curS<10?'0'+curS:curS} / ${durM}:${durS<10?'0'+durS:durS}`;
+            }
+        }
+        
+        // ----- FULLSCREEN - FORCES LANDSCAPE -----
+        function toggleModernFullscreen() {
+            const container = modernPlayerWrapper.querySelector('.video-container');
+            
+            if (!document.fullscreenElement) {
+                if (container.requestFullscreen) {
+                    container.requestFullscreen();
+                } else if (container.webkitRequestFullscreen) {
+                    container.webkitRequestFullscreen();
+                } else if (container.msRequestFullscreen) {
+                    container.msRequestFullscreen();
+                }
+                
+                if (screen.orientation && screen.orientation.lock) {
+                    screen.orientation.lock('landscape').catch(e => {
+                        console.log('Orientation lock not supported');
+                    });
+                }
+                
+                modernFullscreen.innerHTML = '<i class="fas fa-compress"></i>';
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                } else if (document.msExitFullscreen) {
+                    document.msExitFullscreen();
+                }
+                
+                modernFullscreen.innerHTML = '<i class="fas fa-expand"></i>';
+            }
+            showModernControlsWithTimer();
+        }
+        
+        // Buffering indicator only (no loader)
+        function showModernBuffering() { 
+            if (modernBuffering) modernBuffering.style.display = 'block'; 
+        }
+        function hideModernBuffering() { 
+            if (modernBuffering) modernBuffering.style.display = 'none'; 
+        }
+
+        // ----- 3. SWITCHING LOGIC -----
+        function hideBothPlayers() {
+            if (shakaPlayer) { try { shakaPlayer.unload(); } catch(e) {} }
+            if (container) container.classList.remove('active');
+            if (container) container.classList.remove('show-controls');
+            if (modernVideo) { modernVideo.pause(); modernVideo.src = ''; }
+            if (modernPlayerWrapper) modernPlayerWrapper.classList.remove('active');
+            if (hls) { hls.destroy(); hls = null; }
+            currentActivePlayer = null;
+            adjustLayoutForNoPlayer();
+        }
+
+        function switchToShakaPlayer() {
+            if (modernVideo) { 
+                modernVideo.pause(); 
+                modernVideo.src = ''; 
+            }
+            if (modernPlayerWrapper) modernPlayerWrapper.classList.remove('active');
+            if (hls) { hls.destroy(); hls = null; }
+            cancelModernHideTimer();
+            
+            if (container) {
+                container.classList.add('active');
+            }
+            currentActivePlayer = 'shaka';
+            adjustLayoutForActivePlayer();
+            
+            setTimeout(() => {
+                if (container) container.classList.add('show-controls');
+                setupShakaQualityMenu();
+            }, 50);
+        }
+
+        function switchToModernPlayer(streamUrl) {
+            if (shakaPlayer) { 
+                try { shakaPlayer.unload(); } catch(e) {} 
+            }
+            if (container) {
+                container.classList.remove('active');
+                container.classList.remove('show-controls');
+            }
+            
+            if (modernPlayerWrapper) modernPlayerWrapper.classList.add('active');
+            
+            if (modernVideo) {
+                hideModernBuffering();
+                if (modernControls) {
+                    modernControls.classList.remove('hidden-controls');
+                    controlsVisible = true;
+                }
+                cancelModernHideTimer();
+                
+                // Load stream with HLS
+                loadStreamWithHLS(streamUrl);
+                
+                modernVideo.load();
+                modernVideo.play().then(() => {
+                    modernPlayBtn.innerHTML = '<i class="fas fa-pause"></i>';
+                    showModernControlsWithTimer();
+                }).catch(() => {
+                    modernPlayBtn.innerHTML = '<i class="fas fa-play"></i>';
+                });
+            }
+            currentActivePlayer = 'modern';
+            adjustLayoutForActivePlayer();
+        }
+
+        // ----- 4. MODERN CHANNEL CARDS -----
+        function initModernCards() {
+            const modernCards = document.querySelectorAll('.modern-channel');
+            modernCards.forEach(card => {
+                card.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const url = this.dataset.url;
+                    if (!url) return;
+                    
+                    document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('active'));
+                    this.classList.add('active');
+                    switchToModernPlayer(url);
+                });
+            });
+        }
+
+        // ----- 5. SHAKA MENU -----
+        window.openShakaMenu = function(el) {
+            if (modernVideo) { 
+                modernVideo.pause(); 
+                modernVideo.src = ''; 
+            }
+            if (modernPlayerWrapper) modernPlayerWrapper.classList.remove('active');
+            if (hls) { hls.destroy(); hls = null; }
+            cancelModernHideTimer();
+            
+            if (container) {
+                container.classList.add('active');
+            }
+            currentActivePlayer = 'shaka';
+            adjustLayoutForActivePlayer();
+            
+            setTimeout(() => {
+                setupShakaQualityMenu();
+            }, 100);
+            
+            const serverListDiv = document.getElementById('serverList');
+            serverListDiv.innerHTML = '';
+            
+            for (let i = 1; i <= 5; i++) {
+                const serverUrl = el.dataset[`s${i}`];
+                if (!serverUrl) continue;
+                let serverName = el.dataset[`s${i}Name`] || `SERVER ${i}`;
+                const serverBtn = document.createElement('button');
+                serverBtn.className = 'channel-card';
+                serverBtn.style.cssText = "width:100%; margin-bottom:10px; background:#2a2a2a; color:#fff; padding:15px; border-radius:15px; border:none;";
+                serverBtn.textContent = serverName;
+                serverBtn.onclick = () => {
+                    closeModal();
+                    startShakaPlay(serverUrl, el.dataset[`kid${i}`], el.dataset[`key${i}`], el);
+                };
+                serverListDiv.appendChild(serverBtn);
+            }
+            document.getElementById('serverModal').style.display = 'flex';
+        };
+
+        async function startShakaPlay(url, kid, key, el) {
+            if (!url) return;
+            document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('active'));
+            if (el) el.classList.add('active');
+            if (loader) loader.style.display = 'block';
+
+            try {
+                let config = {};
+                if (kid && key) {
+                    config = { 
+                        drm: { 
+                            clearKeys: { 
+                                [kid.replace(/-/g, '')]: key.replace(/-/g, '') 
+                            } 
+                        } 
+                    };
+                }
+                
+                config.abr = { enabled: true };
+                shakaPlayer.configure(config);
+                
+                await shakaPlayer.load(url);
+                
+                setTimeout(() => {
+                    const tracks = shakaPlayer.getVariantTracks();
+                    if (tracks && tracks.length > 0) {
+                        console.log(`Available qualities: ${tracks.map(t => t.height).filter(h => h).join('p, ')}p`);
+                    }
+                    shakaPlayer.configure('abr.enabled', true);
+                }, 500);
+                
+                if (video) {
+                    video.play();
+                }
+                showControlsTemporarily();
+                if (loader) loader.style.display = 'none';
+            } catch (e) {
+                console.error("Shaka error", e);
+                if (loader) loader.style.display = 'none';
+            }
+        }
+
+        function showControlsTemporarily() {
+            clearTimeout(hideTimeout);
+            if (container) container.classList.add('show-controls');
+            if (video && !video.paused) {
+                hideTimeout = setTimeout(() => {
+                    if (container) container.classList.remove('show-controls');
+                }, 4000);
+            }
+        }
+
+        // ----- 6. LAYOUT ADJUSTMENT -----
+        function adjustLayoutForActivePlayer() {
+            const filters = document.getElementById('stickyFilters');
+            const guide = document.getElementById('tvGuideSection');
+            const isMobile = window.innerWidth < 768;
+            const playerHeight = isMobile ? '230px' : '400px';
+            const guideMargin = isMobile ? '310px' : '480px';
+            if (filters) filters.style.top = playerHeight;
+            if (guide) guide.style.marginTop = guideMargin;
+        }
+        function adjustLayoutForNoPlayer() {
+            const filters = document.getElementById('stickyFilters');
+            const guide = document.getElementById('tvGuideSection');
+            if (filters) filters.style.top = '0';
+            if (guide) guide.style.marginTop = '80px';
+        }
+
+        // ----- 7. FILTER & MODAL -----
+        window.filterChannels = function(category, btn) {
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active-filter'));
+            if (btn) btn.classList.add('active-filter');
+            document.querySelectorAll('.channel-card').forEach(card => {
+                const cat = card.getAttribute('data-category');
+                card.style.display = (category === 'all' || cat === category) ? 'flex' : 'none';
+            });
+        };
+        window.closeModal = function() { 
+            document.getElementById('serverModal').style.display = 'none'; 
+        };
+
+        // ----- 8. BOOTSTRAP -----
+        window.addEventListener('DOMContentLoaded', () => {
+            initShaka();
+            setTimeout(() => {
+                initModernPlayer();
+                initModernCards();
+                hideBothPlayers();
+                
+                const autoBtn = document.querySelector('.modern-player-wrapper .settings-menu button[data-quality="auto"]');
+                if (autoBtn) autoBtn.classList.add('active-quality');
+                
+                setupShakaQualityMenu();
+            }, 100);
+            
+            document.addEventListener('fullscreenchange', function() {
+                if (modernFullscreen) {
+                    modernFullscreen.innerHTML = document.fullscreenElement ? '<i class="fas fa-compress"></i>' : '<i class="fas fa-expand"></i>';
+                }
+            });
+            
+            document.addEventListener('keydown', function(e) {
+                if (currentActivePlayer !== 'modern' || !modernVideo) return;
+                if (e.code === 'Space') { e.preventDefault(); toggleModernPlay(); showModernControlsWithTimer(); }
+                if (e.code === 'ArrowRight') { e.preventDefault(); modernVideo.currentTime += 5; showModernControlsWithTimer(); }
+                if (e.code === 'ArrowLeft') { e.preventDefault(); modernVideo.currentTime -= 5; showModernControlsWithTimer(); }
+                if (e.code === 'KeyM') { e.preventDefault(); toggleModernMute(); showModernControlsWithTimer(); }
+                if (e.code === 'KeyF') { e.preventDefault(); toggleModernFullscreen(); showModernControlsWithTimer(); }
+            });
+            
+            window.addEventListener('resize', () => {
+                if (currentActivePlayer) adjustLayoutForActivePlayer();
+            });
+        });
+    </script>
+</body>
+</html>
